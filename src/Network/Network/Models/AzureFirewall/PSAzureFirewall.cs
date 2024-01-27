@@ -18,6 +18,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Management.Automation;
 using System.Net;
+using Microsoft.Azure.Commands.Common.Compute.Version2016_04_preview.Models;
+using Microsoft.Azure.Management.WebSites.Version2016_09_01.Models;
 using Microsoft.Rest;
 using Newtonsoft.Json;
 
@@ -503,9 +505,13 @@ namespace Microsoft.Azure.Commands.Network.Models
             {
                 throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address", ipAddress));
             }
+            else
+            {
+                Console.WriteLine($"Parsed to {ipVal}");
+            }
         }
 
-        private void ValidateMaskedIpAddress(string ipAddress)
+        private void ValidateMaskedIpAddressOLD(string ipAddress)
         {
             var split = ipAddress.Split('/');
             if (split.Length != 2)
@@ -523,8 +529,158 @@ namespace Microsoft.Azure.Commands.Network.Models
             var splittedIp = split[0].Split('.');
             var ip = Int32.Parse(splittedIp[0]) << 24;            
             ip += (Int32.Parse(splittedIp[1]) << 16) + (Int32.Parse(splittedIp[2]) << 8) + Int32.Parse(splittedIp[3]);
-            if ((ip << bit != 0) && (bit != 32)) // Shifting the entire bit length (32 in this case) will return the same value
+            // Still need to fix fully to prevent any /32 from passing
+            if ((ip << bit != 0) && (bit != 32)) // left-shifting on an int/uint will only use the 5 least signficant digits, so a shift of 32 [0010 0000] will actually become a shift of 0
                 throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address, bits not covered by subnet mask should be all 0", ipAddress));
+        }
+
+        private void ValidateMaskedIpAddress(string ipAddress)
+        {
+            ValidateIPv4CidrNotation(ipAddress);
+        }
+
+        private void ValidateIPv4CidrNotation(string ipv4Cidr)
+        {
+            Console.WriteLine("0");
+            var subnet = ipv4Cidr.Split('/');
+            if (subnet.Length != 2)
+                throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address", ipv4Cidr));
+            Console.WriteLine("1");
+            uint address;
+            if (!TryParseIPv4Address(subnet[0], out address))
+            {
+                throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address", ipv4Cidr));
+            }
+            Console.WriteLine($"Parsed '{subnet[0]}' into unit {address}");
+            int host;
+            if (!TryParseIPv4HostIdentifier(subnet[1], out host))
+            {
+                throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address, subnet mask should between 0 and 32", ipv4Cidr));
+            }
+            Console.WriteLine("3");
+            
+            if (!doesNetworkPrefixCorrectlyMaskHost(address, host))
+            {
+                uint recommendedAddressBits;
+                if (TryApplyMask(address, host, out recommendedAddressBits))
+                {
+                    string recommendation = $"Try using '{uintToIPv4AddressString(recommendedAddressBits)}' instead.";
+                    throw new PSArgumentException($"The network prefix for the CIDR string '{ipv4Cidr}' should be masked according to the suffix '{host}'. {recommendation}");
+                }
+                else
+                {
+                    throw new PSArgumentException($"The network prefix for the CIDR string '{ipv4Cidr}' should be masked according to the suffix '{host}'.");
+                } 
+            }
+
+            Console.WriteLine("4");
+        }
+
+        private string uintToIPv4AddressString(uint address)
+        {
+            var bytes = new byte[4];
+            for (int i = 0; i < 4; i++)
+            {
+                bytes[i] = (byte) (address >> (8 * (3-i)));
+            }
+
+            return String.Join(".", bytes);
+        }
+
+        private void ValidateIPv4SubnetMask(string subnetMask)
+        {
+            int bit;
+            if (!Int32.TryParse(subnetMask, out bit) || isValidHostIdentifier(bit))
+                throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address, subnet mask should between 0 and 32", subnetMask));
+        }
+
+        private bool isValidHostIdentifier(int host)
+        {
+            return host >= 0 && host <= 32;
+        }
+
+        private bool isValidIPv4Block(int block)
+        {
+            return block >= 0 && block <= 255;
+        }
+
+        private bool doesNetworkPrefixCorrectlyMaskHost(uint networkPrefix, int hostIdentifier)
+        {
+            const uint fullMask = UInt32.MaxValue;
+            Console.WriteLine($"networkPrefix: {networkPrefix}");
+            Console.WriteLine($"hostIdentifier: {hostIdentifier}");
+            Console.WriteLine($"After shift: {networkPrefix << hostIdentifier}");
+            if (hostIdentifier > 32 || hostIdentifier < 0) return false;
+            if (hostIdentifier == 32 && networkPrefix != fullMask) return false;
+            if (hostIdentifier == 32 && networkPrefix == fullMask) return true;
+
+            return (networkPrefix << hostIdentifier) == 0;
+        }
+
+        private bool TryApplyMask(uint address, int prefixLength, out uint maskedAddress)
+        {
+            maskedAddress = 0;
+            if (!isValidHostIdentifier(prefixLength)) return false;
+            int shift = (32 - prefixLength);
+            maskedAddress = (address >> shift) << shift;
+
+            return true;
+        }
+
+        private bool TryParseIPv4Address(string address, out uint parsed)
+        {
+            bool isValid = true;
+            parsed = 0;
+            var asStrings = address.Split('.');
+
+            if (asStrings.Length != 4)
+            {
+                return false;
+            }
+
+            uint[] asBits = new uint[4];
+            for (int i = 0; i < 4; i++)
+            {
+                uint bits = 0;
+                if (TryParseIPv4Block(asStrings[i], out bits))
+                {
+                    asBits[i] = bits;
+                }
+                else
+                {
+                    isValid = false;
+                }
+            }
+
+            for (int i = 0; i < 4; i++)
+            {
+                int amountToShift = (8 * (3 - i)); // 24, 16, 8, 0
+                parsed += (asBits[i] << amountToShift);
+            }
+
+            return isValid;
+        }
+
+        private bool TryParseIPv4HostIdentifier(string host, out int parsed)
+        {
+            return Int32.TryParse(host, out parsed) && parsed >= 0 && parsed <= 32;
+        }
+
+        private bool TryParseIPv4Block(string block, out uint parsed)
+        {
+            return UInt32.TryParse(block, out parsed) && parsed >= 0 && parsed <= 255;
+        }
+
+        /// <summary>
+        /// Validates the host identifier part of an IPv4 CIDR notation string
+        /// </summary>
+        /// <param name="host"></param>
+        /// <exception cref="PSArgumentException"></exception>
+        private void ValidateIPv4SubnetHostIdentifier(string host)
+        {
+            int bit;
+            if (!Int32.TryParse(host, out bit) || bit < 0 || bit > 32)
+                throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address, subnet mask should between 0 and 32", host));
         }
 
         #endregion
