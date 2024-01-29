@@ -610,13 +610,21 @@ namespace Microsoft.Azure.Commands.Network.Models
             Console.WriteLine($"networkPrefix: {networkPrefix}");
             Console.WriteLine($"hostIdentifier: {hostIdentifier}");
             Console.WriteLine($"After shift: {networkPrefix << hostIdentifier}");
-            if (hostIdentifier > 32 || hostIdentifier < 0) return false;
+            if (!isValidHostIdentifier(hostIdentifier)) return false;
             if (hostIdentifier == 32 && networkPrefix != fullMask) return false;
             if (hostIdentifier == 32 && networkPrefix == fullMask) return true;
 
             return (networkPrefix << hostIdentifier) == 0;
         }
 
+        /// <summary>
+        /// Tries to mask the non-network bits with 0, according to the prefixLength (if the length is valid).
+        /// ex. 192.168.111.234/16 -> 192.168.0.0
+        /// </summary>
+        /// <param name="address"></param>
+        /// <param name="prefixLength"></param>
+        /// <param name="maskedAddress"></param>
+        /// <returns></returns>
         private bool TryApplyMask(uint address, int prefixLength, out uint maskedAddress)
         {
             maskedAddress = 0;
@@ -627,6 +635,12 @@ namespace Microsoft.Azure.Commands.Network.Models
             return true;
         }
 
+        /// <summary>
+        /// Try to parse an IP address string into a UInt32
+        /// </summary>
+        /// <param name="address"></param>
+        /// <param name="parsed"></param>
+        /// <returns></returns>
         private bool TryParseIPv4Address(string address, out uint parsed)
         {
             bool isValid = true;
@@ -663,12 +677,12 @@ namespace Microsoft.Azure.Commands.Network.Models
 
         private bool TryParseIPv4HostIdentifier(string host, out int parsed)
         {
-            return Int32.TryParse(host, out parsed) && parsed >= 0 && parsed <= 32;
+            return Int32.TryParse(host, out parsed) && isValidHostIdentifier(parsed);
         }
 
         private bool TryParseIPv4Block(string block, out uint parsed)
         {
-            return UInt32.TryParse(block, out parsed) && parsed >= 0 && parsed <= 255;
+            return UInt32.TryParse(block, out parsed) && isValidIPv4Block((int)parsed);
         }
 
         /// <summary>
@@ -679,7 +693,7 @@ namespace Microsoft.Azure.Commands.Network.Models
         private void ValidateIPv4SubnetHostIdentifier(string host)
         {
             int bit;
-            if (!Int32.TryParse(host, out bit) || bit < 0 || bit > 32)
+            if (!Int32.TryParse(host, out bit) || !isValidHostIdentifier(bit))
                 throw new PSArgumentException(String.Format("\'{0}\' is not a valid private range ip address, subnet mask should between 0 and 32", host));
         }
 
