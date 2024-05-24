@@ -1339,7 +1339,7 @@ function Test-AzureFirewallThreatIntelWhitelistCRUD {
 .SYNOPSIS
 Tests AzureFirewall PrivateRange
 #>
-function Test-AzureFirewallPrivateRangeCRUD {
+function Test-AzureFirewallPrivateRangeCRUD { # TODO
     $rgname = Get-ResourceGroupName
     $azureFirewallName = Get-ResourceName
     $resourceTypeParent = "Microsoft.Network/AzureFirewalls"

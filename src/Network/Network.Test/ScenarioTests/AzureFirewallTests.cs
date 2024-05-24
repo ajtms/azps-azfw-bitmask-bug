@@ -85,7 +85,7 @@ namespace Commands.Network.Test.ScenarioTests
         [Fact]
         [Trait(Category.AcceptanceType, Category.CheckIn)]
         [Trait(Category.Owner, NrpTeamAlias.azurefirewall)]
-        public void TestAzureFirewallPrivateRangeCRUD()
+        public void TestAzureFirewallPrivateRangeCRUD() // Runs the private range stuff
         {
             TestRunner.RunTestScript("Test-AzureFirewallPrivateRangeCRUD");
         }
